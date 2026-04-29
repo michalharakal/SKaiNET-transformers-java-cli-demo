@@ -21,8 +21,12 @@
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
-        <!-- Track SKaiNET-transformers releases here; bump in lockstep. -->
-        <skainet.transformers.version>0.21.0</skainet.transformers.version>
+        <!--
+            Track SKaiNET-transformers releases here; bump on each new tag.
+            SKaiNET (core) artifacts are pulled in transitively via the
+            transformers POMs, so they are not declared explicitly below.
+        -->
+        <skainet.transformers.version>0.21.1</skainet.transformers.version>
 
         <!-- The exec-maven-plugin needs the same JVM args the sample does. -->
         <jvm.preview.args>
@@ -33,22 +37,54 @@
     <dependencies>
         <!--
             KMP modules expose -jvm artifacts for plain-Java/Maven consumers
-            because Maven does not understand Gradle module metadata.
+            because Maven does not understand Gradle module metadata. Coordinates
+            mirror the upstream Gradle sample at
+            SKaiNET-transformers/llm-apps/kllama-java-sample/build.gradle.kts.
+            sk.ainet.core:* deps land transitively (at the version pinned by
+            the transformers POMs), so they are not declared here.
+
+            The kotlin-stdlib-common exclusion is a workaround for a Kotlin
+            2.3.x KMP-on-Maven gotcha: kotlin-stdlib-2.3.21 declares
+            kotlin-stdlib-common as a transitive without <type>, but on Central
+            kotlin-stdlib-common is a packaging=pom metadata-only module
+            (no jar exists). Excluding it here prevents Maven from 404ing.
+            Nothing in the JVM runtime needs that module — the real stdlib
+            classes are in kotlin-stdlib itself.
         -->
+
+        <!-- Tool-calling agent loop + JavaAgentLoop / JavaTool / JavaTools surface. -->
         <dependency>
             <groupId>sk.ainet.transformers</groupId>
-            <artifactId>kllama-jvm</artifactId>
+            <artifactId>skainet-transformers-runtime-kllama-jvm</artifactId>
             <version>${skainet.transformers.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.jetbrains.kotlin</groupId>
+                    <artifactId>kotlin-stdlib-common</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>sk.ainet.transformers</groupId>
-            <artifactId>llama-jvm</artifactId>
+            <artifactId>skainet-transformers-agent-jvm</artifactId>
             <version>${skainet.transformers.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.jetbrains.kotlin</groupId>
+                    <artifactId>kotlin-stdlib-common</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>sk.ainet.transformers</groupId>
-            <artifactId>llm-agent-jvm</artifactId>
+            <artifactId>skainet-transformers-inference-llama-jvm</artifactId>
             <version>${skainet.transformers.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.jetbrains.kotlin</groupId>
+                    <artifactId>kotlin-stdlib-common</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
     </dependencies>
 
@@ -79,7 +115,7 @@
 
             <!--
                 `mvn package` produces a runnable shadow jar at
-                target/skainet-java-demo-0.1.0-SNAPSHOT-shaded.jar that you
+                target/skainet-java-demo-0.1.0-SNAPSHOT.jar that you
                 can hand to a friend along with a model file.
             -->
             <plugin>

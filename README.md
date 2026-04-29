@@ -2,7 +2,7 @@
 
 A minimal pure-Java tool-calling demo using
 [SKaiNET-transformers](https://github.com/SKaiNET-developers/SKaiNET-transformers)
-0.21.0. No Kotlin in your project, no Spring, no Python — just Maven + a
+0.21.1. No Kotlin in your project, no Spring, no Python — just Maven + a
 local GGUF model file.
 
 The demo registers a `calculator` tool, asks a small Llama 3.x model
@@ -60,7 +60,7 @@ to actually exercise the tool path.
 mvn -B package
 ```
 
-Produces `target/skainet-java-demo-0.1.0-SNAPSHOT-shaded.jar` — a
+Produces `target/skainet-java-demo-0.1.0-SNAPSHOT.jar` — a
 self-contained runnable jar with all SKaiNET classes shaded in.
 
 ## 3. Run — minimal version
@@ -79,7 +79,7 @@ Or directly with `java`:
 
 ```bash
 java --enable-preview --add-modules jdk.incubator.vector \
-     -jar target/skainet-java-demo-0.1.0-SNAPSHOT-shaded.jar \
+     -jar target/skainet-java-demo-0.1.0-SNAPSHOT.jar \
      Llama-3.2-1B-Instruct-Q8_0.gguf 'What is 17 * 23?'
 ```
 
@@ -115,12 +115,12 @@ you don't need to import `kotlinx.serialization`.
 
 ## Troubleshooting
 
-- **`Could not find artifact sk.ainet.transformers:kllama-jvm:jar:0.21.0`** —
-  Maven Central indexes new releases on a delay. Either wait a few hours
-  after a SKaiNET-transformers tag push, or build the artifacts locally
-  with `./gradlew publishToMavenLocal` from a SKaiNET-transformers
-  checkout — the `pom.xml` here already lists Maven Local as the first
-  resolution source.
+- **`Could not find artifact sk.ainet.transformers:skainet-transformers-runtime-kllama-jvm:jar:0.21.1`** —
+  Maven Central indexes new releases on a delay. Wait a few hours after
+  a SKaiNET-transformers tag push, then re-run with `mvn -U package`.
+  The `pom.xml` here pins the exact published coordinates (long
+  artifact names prefixed with `skainet-transformers-`); earlier
+  iterations of this demo used short names that no longer match Central.
 - **`UnsatisfiedLinkError: jdk.incubator.vector`** — JDK 21+ is required
   and you must pass `--enable-preview --add-modules jdk.incubator.vector`
   on the JVM command line. The pom does this for `mvn exec:java`; for
