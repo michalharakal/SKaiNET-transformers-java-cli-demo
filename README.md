@@ -70,7 +70,8 @@ Either via Maven:
 ```bash
 mvn -B exec:exec \
     -Dexec.executable=java \
-    -Dexec.args="--enable-preview --add-modules jdk.incubator.vector \
+    -Dexec.args="-Xms2g -Xmx8g \
+                 --enable-preview --add-modules jdk.incubator.vector \
                  -cp %classpath sk.ainet.demo.Main \
                  Llama-3.2-1B-Instruct-Q8_0.gguf 'What is 17 * 23?'"
 ```
@@ -78,10 +79,16 @@ mvn -B exec:exec \
 Or directly with `java`:
 
 ```bash
-java --enable-preview --add-modules jdk.incubator.vector \
+java -Xms2g -Xmx8g \
+     --enable-preview --add-modules jdk.incubator.vector \
      -jar target/skainet-java-demo-0.1.0-SNAPSHOT.jar \
      Llama-3.2-1B-Instruct-Q8_0.gguf 'What is 17 * 23?'
 ```
+
+The `-Xms2g -Xmx8g` heap settings are required: the KV cache and
+weight buffers don't fit in the JVM's ~256 MB default heap, and you
+will get `OutOfMemoryError: Java heap space` during `loadGGUF` without
+them.
 
 Expected output (Llama 3.2 1B Instruct):
 
@@ -125,8 +132,10 @@ you don't need to import `kotlinx.serialization`.
   and you must pass `--enable-preview --add-modules jdk.incubator.vector`
   on the JVM command line. The pom does this for `mvn exec:java`; for
   `java -jar` you pass it directly.
-- **OutOfMemoryError on load** — bump the heap: add
-  `-Xms2g -Xmx8g` to the JVM args.
+- **`OutOfMemoryError: Java heap space` at `HeapKvCache.<init>`** —
+  the JVM's default ~256 MB heap is too small for the KV cache. The
+  example commands above already pass `-Xms2g -Xmx8g`; if you're
+  invoking the jar from your own script, add the same flags.
 - **Model not found / corrupt** — re-download with `curl -L -C -`
   (resume) and check the file size matches Hugging Face's listing.
 
