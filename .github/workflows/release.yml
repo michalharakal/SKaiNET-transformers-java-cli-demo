@@ -1,0 +1,42 @@
+name: Release fat jar
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build fat jar
+        run: mvn -B -ntp -DskipTests package
+
+      - name: Stage artifact
+        id: stage
+        run: |
+          set -euo pipefail
+          jar="$(ls target/skainet-java-demo-*.jar | grep -v -E 'sources|javadoc|original-' | head -n1)"
+          test -n "$jar"
+          tag="${GITHUB_REF_NAME}"
+          out="skainet-java-demo-${tag}.jar"
+          cp "$jar" "$out"
+          echo "artifact=$out" >> "$GITHUB_OUTPUT"
+
+      - name: Create release and upload artifact
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.stage.outputs.artifact }}
+          generate_release_notes: true
