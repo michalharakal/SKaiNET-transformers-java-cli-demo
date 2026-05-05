@@ -26,7 +26,7 @@
             SKaiNET (core) artifacts are pulled in transitively via the
             transformers POMs, so they are not declared explicitly below.
         -->
-        <skainet.transformers.version>0.23.1</skainet.transformers.version>
+        <skainet.transformers.version>0.23.2</skainet.transformers.version>
 
         <!-- The exec-maven-plugin needs the same JVM args the sample does. -->
         <jvm.preview.args>
@@ -79,6 +79,42 @@
             <groupId>sk.ainet.transformers</groupId>
             <artifactId>skainet-transformers-inference-llama-jvm</artifactId>
             <version>${skainet.transformers.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.jetbrains.kotlin</groupId>
+                    <artifactId>kotlin-stdlib-common</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!--
+            Core types we need at COMPILE time when driving AgentLoop directly
+            (Tokenizer, InferenceRuntime, JsonObject return types). These are
+            already on the runtime classpath via the transformers POMs above,
+            but Maven's transitive-scope rule downgrades them to `runtime` —
+            so without explicit declarations javac can't see Tokenizer.class.
+        -->
+        <dependency>
+            <groupId>sk.ainet.transformers</groupId>
+            <artifactId>skainet-transformers-core-jvm</artifactId>
+            <version>${skainet.transformers.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.jetbrains.kotlin</groupId>
+                    <artifactId>kotlin-stdlib-common</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.jetbrains.kotlinx</groupId>
+            <artifactId>kotlinx-serialization-json-jvm</artifactId>
+            <version>1.11.0</version>
+        </dependency>
+        <!-- DType / FP32 marker types referenced by AgentLoop's generic bound. -->
+        <dependency>
+            <groupId>sk.ainet.core</groupId>
+            <artifactId>skainet-lang-core-jvm</artifactId>
+            <version>0.23.1</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.jetbrains.kotlin</groupId>
