@@ -10,6 +10,9 @@ target/
 .classpath
 .settings/
 
+# Claude Code session data
+.claude/
+
 # Maven artifacts
 dependency-reduced-pom.xml
 
