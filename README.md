@@ -2,19 +2,20 @@
 
 A minimal pure-Java tool-calling demo using
 [SKaiNET-transformers](https://github.com/SKaiNET-developers/SKaiNET-transformers)
-0.23.2. No Kotlin in your project, no Spring, no Python — just Maven + a
+0.23.3. No Kotlin in your project, no Spring, no Python — just Maven + a
 local GGUF model file.
 
-The demo registers a `list_files` tool that reads a directory off the
-local filesystem, asks a small Llama 3.x model to "List the files in the
-current directory", and prints every stage of the agent loop:
+The demo registers two tools — `list_files` (read a directory off the
+local filesystem) and `calculator` (evaluate `+ - * /` and parentheses) —
+asks a small Llama 3.x model a question that routes to one of them, and
+prints every stage of the agent loop: prefill progress (new in 0.23.3),
 rendered prompt fed to the tokenizer, parsed tool calls, validation
 failures, tool dispatch + result, and the final assistant message.
 
 The verbose logging is wired by driving the underlying `AgentLoop`
-directly with a custom `AgentListener`, instead of using `JavaAgentLoop`
-whose Java surface only exposes a `Consumer<String>` for streamed
-tokens.
+directly with a custom `AgentListener` (see `VerboseAgentListener`),
+instead of using `JavaAgentLoop` whose Java surface only exposes a
+`Consumer<String>` for streamed tokens.
 
 ## What you need
 
@@ -93,8 +94,17 @@ java -Xms2g -Xmx16g \
      Llama-3.2-1B-Instruct-Q8_0.gguf 'List files in .'
 ```
 
+To exercise the calculator tool instead:
+
+```bash
+java -Xms2g -Xmx16g \
+     --enable-preview --add-modules jdk.incubator.vector \
+     -jar target/skainet-java-demo-0.1.0-SNAPSHOT.jar \
+     Llama-3.2-1B-Instruct-Q8_0.gguf 'What is 17 * 23?'
+```
+
 The `-Xms2g -Xmx16g` heap settings are required: in
-SKaiNET-transformers 0.23.2 `KLlamaJava.loadGGUF` allocates the KV
+SKaiNET-transformers 0.23.3 `KLlamaJava.loadGGUF` allocates the KV
 cache for the model's full context length up front, which for
 Llama 3.2 1B is 131 072 tokens — about 8 GB of FloatArrays just for
 K and V buffers, before any inference work. Without `-Xmx16g` you
@@ -108,12 +118,16 @@ Expected output (Llama 3.2 1B Instruct), abbreviated:
 
 ```
 >>> ToolCallingSupport family=llama3 mode=NATIVE template=Llama3ChatTemplate
->>> rendered prompt (1401 chars):
+>>> rendered prompt (1800 chars):
     <|begin_of_text|><|start_header_id|>system<|end_header_id|>
     You are a helpful assistant with tool calling capabilities.
     ...
->>> tokenized prompt: 282 tokens (eos=128009)
+>>> tokenized prompt: 386 tokens (eos=128009)
 >>> calling AgentLoop.runWithEncoder(...)
+    prefill: 16/386 (4%)
+    prefill: 32/386 (8%)
+    ...
+    prefill: 386/386 (100%)
 {"name":"list_files","parameters":{"path":"."}}
 >>> onAssistantMessage (47 chars)
 >>> onToolCalls: parsed 1 call(s)
@@ -127,15 +141,27 @@ Expected output (Llama 3.2 1B Instruct), abbreviated:
     pom.xml
     src/
     target/
+    prefill: 16/430 (3%)
+    ...
 ... [model summarizes] ...
 ---
 Final answer: The current directory contains README.md, pom.xml, src/, ...
+[N tokens — wall Xs (Y tok/s), decode Zs (W tok/s)]
 ```
+
+The `prefill: …` lines are written with carriage returns, so in a real
+terminal they appear as a single updating progress line, not a wall of
+text. They come from `VerboseAgentListener.onPrefillProgress`, which
+implements the new `AgentListener.onPrefillProgress(done, total)`
+callback added in SKaiNET-transformers 0.23.3 — the previous releases
+gave you no signal at all between `runWithEncoder` start and the first
+`onToken`, so the loop appeared hung during the autoregressive prefill
+of the prompt tokens.
 
 The streamed JSON line is the model's tool call (printed token-by-token
 via `onToken`); `onToolCalls` fires once the chat template has parsed
-the JSON; the `list_files` tool runs and the directory listing is fed
-back into the model; the final assistant message lands on the last line.
+the JSON; the relevant tool runs and its result is fed back into the
+model; the final assistant message lands on the last line.
 
 ## What's happening under the hood
 
@@ -143,15 +169,18 @@ back into the model; the final assistant message lands on the last line.
 Main.main(args)
   └── KLlamaJava.loadGGUF(modelPath)
         └── KLlamaSession                    ← AutoCloseable; off-heap weights
-              ├── ToolRegistry.register(JavaToolAdapter(listFiles))
+              ├── ToolRegistry.register(JavaToolAdapter(new ListFilesTool()))
+              ├── ToolRegistry.register(JavaToolAdapter(new CalculatorTool()))
               ├── ToolCallingSupportResolver.resolveOrFallback(metadata, "llama3")
               │     └── Llama3ChatTemplate (NATIVE tool-calling mode)
               └── new AgentLoop(runtime, template, registry, eos, config, decode)
-                    └── runWithEncoder(messages, encode, listener)
+                    └── runWithEncoder(messages, encode, VerboseAgentListener)
                           ├── runtime.reset()                    ← KV cache cleared
                           ├── template.apply(messages, defs, true) → rendered prompt
                           ├── encode(rendered) → token IDs
-                          ├── generateUntilStop → onToken stream
+                          ├── generateUntilStop
+                          │     ├── per prompt token  → onPrefillProgress  (new in 0.23.3)
+                          │     └── per generated token → onToken stream
                           ├── template.parseToolCalls(text) → onToolCalls
                           ├── tool.execute(args) → onToolResult
                           └── append tool message; loop until no more tool calls
@@ -164,8 +193,29 @@ you don't need to import `kotlinx.serialization`.
 The demo bypasses `JavaAgentLoop` (whose `Builder` only lets you wire
 a `Consumer<String>` for streamed tokens) and constructs `AgentLoop`
 directly so we can attach an `AgentListener` with rich per-stage
-callbacks: `onToken`, `onAssistantMessage`, `onThinking`, `onToolCalls`,
-`onToolResult`, `onToolCallValidationFailed`, `onComplete`.
+callbacks: `onToken`, `onPrefillProgress`, `onAssistantMessage`,
+`onThinking`, `onToolCalls`, `onToolResult`,
+`onToolCallValidationFailed`, `onComplete`.
+
+### Source layout
+
+```
+src/main/java/sk/ainet/demo/
+├── Main.java                  — argv parsing + session lifecycle + AgentLoop wiring
+├── DemoLog.java               — package-private static stage() / indent() helpers
+├── Calc.java                  — recursive-descent +,-,*,/,() expression evaluator
+├── CalculatorTool.java        — JavaTool, delegates to Calc
+├── ListFilesTool.java         — JavaTool, lists a directory
+└── VerboseAgentListener.java  — AgentListener implementation; exposes
+                                  firstTokenNanos() / lastTokenNanos() /
+                                  tokenCount() so Main can compute the
+                                  post-run wall-clock and decode-only tok/s
+```
+
+Two single-purpose tool classes (`ListFilesTool`, `CalculatorTool`) plus
+a single-purpose listener (`VerboseAgentListener`) — copy any of them
+into your own project as a starting point, none of them depend on the
+demo entry point.
 
 ### Per-turn re-prefill
 
@@ -174,9 +224,13 @@ tool round — the KV cache is discarded between rounds. So after the
 first tool call resolves, round 2 re-renders and re-tokenizes the full
 conversation (system prompt + tool schema + user message + assistant
 tool call + tool result + new assistant header) and prefills it from
-token 0. On a CPU-only 1B Llama this can dominate wall time. If you
-only need the tool call's output (not the model's natural-language
-summary), set `AgentConfig.setMaxToolRounds(1)` to skip round 2.
+token 0. Prefill is autoregressive in 0.23.x (one `forward()` per
+prompt token — the comment on `generateUntilStop` explains the
+`forwardBatched` correctness regression that's currently reverted), so
+on a CPU-only 1B Llama this dominates wall time. The `prefill: …`
+progress line keeps you informed; if you only need the tool call's
+output and not the model's natural-language summary, set
+`AgentConfig.setMaxToolRounds(1)` to skip round 2 entirely.
 
 ## Troubleshooting
 
@@ -186,16 +240,16 @@ summary), set `AgentConfig.setMaxToolRounds(1)` to skip round 2.
   The `pom.xml` here pins the exact published coordinates (long
   artifact names prefixed with `skainet-transformers-`); earlier
   iterations of this demo used short names that no longer match Central.
-- **Model wraps tool call in markdown ` ``` ` fences and the loop hangs** —
-  the parser only matches raw JSON. The system prompt in this demo
-  explicitly tells the model "no markdown fences, no surrounding prose".
-  If you swap in your own system prompt, keep that instruction or the
-  model may emit fenced JSON that `parseToolCalls` skips, after which
-  the model just keeps generating until hitting `maxTokensPerRound`.
+- **Model wraps tool call in markdown ` ``` ` fences** — SKaiNET-transformers
+  0.23.2+ tolerates fenced JSON in `Llama31ToolCallParserStrategy`, so
+  fenced calls now parse correctly. The system prompt in this demo still
+  asks for raw JSON to keep the rendered prompt minimal; if you swap in
+  your own system prompt and rely on fences, you can drop that instruction.
 - **Round 2 takes minutes on CPU** — `AgentLoop` resets the KV cache
   every tool round and re-prefills the full conversation. See "Per-turn
-  re-prefill" above. Set `AgentConfig.setMaxToolRounds(1)` if you only
-  want the tool's output and don't need the model's summary.
+  re-prefill" above. The `prefill: N/T` progress line keeps you informed
+  during each round; if you only want the tool's output and not the
+  model's summary, set `AgentConfig.setMaxToolRounds(1)`.
 - **`UnsatisfiedLinkError: jdk.incubator.vector`** — JDK 21+ is required
   and you must pass `--enable-preview --add-modules jdk.incubator.vector`
   on the JVM command line. The pom does this for `mvn exec:java`; for
